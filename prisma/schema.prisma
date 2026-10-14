@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  folders       Folder[]
+  subscriptions Subscription[]
+  articleStates ArticleState[]
+  settings      UserSettings?
+}
+
+model UserSettings {
+  userId                 String @id
+  refreshIntervalMinutes Int    @default(30)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@unique([userId, name])
+  @@index([userId, sortOrder])
+}
+
+model Feed {
+  id                String    @id @default(cuid())
+  url               String    @unique
+  siteUrl           String?
+  title             String
+  description       String?
+  etag              String?
+  lastModified      String?
+  lastFetchedAt     DateTime?
+  lastError         String?
+  refreshInProgress Boolean   @default(false)
+  refreshStartedAt  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  articles      Article[]
+  subscriptions Subscription[]
+  refreshLogs   RefreshLog[]
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  feedId      String
+  folderId    String?
+  customTitle String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feed   Feed    @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  folder Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, feedId])
+  @@index([userId, folderId])
+}
+
+model Article {
+  id          String    @id @default(cuid())
+  feedId      String
+  guid        String?
+  url         String?
+  title       String
+  author      String?
+  summary     String?
+  contentHtml String?
+  publishedAt DateTime?
+  fingerprint String
+  createdAt   DateTime  @default(now())
+
+  feed   Feed           @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  states ArticleState[]
+
+  @@unique([feedId, fingerprint])
+  @@index([feedId, publishedAt])
+  @@index([feedId, guid])
+}
+
+model ArticleState {
+  id        String    @id @default(cuid())
+  userId    String
+  articleId String
+  isRead    Boolean   @default(false)
+  isStarred Boolean   @default(false)
+  readAt    DateTime?
+  updatedAt DateTime  @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([userId, isRead])
+  @@index([userId, isStarred])
+}
+
+model RefreshLog {
+  id            String    @id @default(cuid())
+  feedId        String
+  status        String
+  message       String?
+  articlesAdded Int       @default(0)
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  feed Feed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+
+  @@index([feedId, startedAt])
+}

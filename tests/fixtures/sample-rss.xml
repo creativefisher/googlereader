@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Sample Tech Feed</title>
+    <link>https://example.com</link>
+    <description>Fixture RSS feed</description>
+    <item>
+      <guid>sample-rss-1</guid>
+      <title>Welcome to the RSS Reader</title>
+      <link>https://example.com/articles/welcome</link>
+      <pubDate>Mon, 01 Sep 2025 12:00:00 GMT</pubDate>
+      <author>Editor</author>
+      <description><![CDATA[<p>This is a seeded article with <strong>HTML</strong> content.</p>]]></description>
+    </item>
+    <item>
+      <guid>sample-rss-2</guid>
+      <title>Keyboard shortcuts</title>
+      <link>https://example.com/articles/shortcuts</link>
+      <pubDate>Sun, 31 Aug 2025 08:00:00 GMT</pubDate>
+      <description>Use j/k to move between articles.</description>
+    </item>
+  </channel>
+</rss>
