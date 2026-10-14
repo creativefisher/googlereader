@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Sample Atom Feed</title>
+  <link href="https://example.org" />
+  <entry>
+    <id>atom-entry-1</id>
+    <title>Atom parsing works</title>
+    <link href="https://example.org/atom-1" />
+    <updated>2025-08-30T10:00:00Z</updated>
+    <summary>Atom fixture entry.</summary>
+    <content type="html">&lt;p&gt;Atom &lt;em&gt;content&lt;/em&gt;.&lt;/p&gt;</content>
+  </entry>
+</feed>
