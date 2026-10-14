@@ -37,5 +37,13 @@ next-env.d.ts
 
 /prisma/*.db
 /prisma/*.db-journal
+/prisma/prisma/
+/dev.db
+.env
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
 /test-results/
 /playwright-report/
+/src/generated/
