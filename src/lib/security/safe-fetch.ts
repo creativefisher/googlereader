@@ -2,6 +2,12 @@ import { assertSafeFetchUrl } from "@/lib/security/url";
 
 const DEFAULT_MAX_REDIRECTS = 5;
 
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
+function isRedirectStatus(status: number): boolean {
+  return REDIRECT_STATUS.has(status);
+}
+
 export class SafeFetchError extends Error {
   constructor(message: string) {
     super(message);
@@ -31,7 +37,7 @@ export async function fetchWithSafeRedirects(
       redirect: "manual",
     });
 
-    if (response.status >= 300 && response.status < 400) {
+    if (isRedirectStatus(response.status)) {
       const location = response.headers.get("location");
       if (!location) {
         throw new SafeFetchError(`Redirect ${response.status} without Location header`);

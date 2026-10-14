@@ -104,9 +104,9 @@ export function encodeArticleCursor(publishedAt: Date | null, id: string): strin
   return `${ts}|${id}`;
 }
 
-function decodeArticleCursor(cursor: string): { publishedAt: Date | null; id: string } | null {
+export function decodeArticleCursor(cursor: string): { publishedAt: Date | null; id: string } | null {
   const sep = cursor.lastIndexOf("|");
-  if (sep <= 0) return null;
+  if (sep < 0) return null;
   const ts = cursor.slice(0, sep);
   const id = cursor.slice(sep + 1);
   if (!id) return null;

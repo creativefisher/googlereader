@@ -12,4 +12,6 @@ export const REFRESH_STALE_LOCK_MS = 15 * 60 * 1000;
 
 export const OPML_MAX_FEED_IMPORTS = 200;
 
+export const OPML_MAX_OUTLINE_VISITS = 5_000;
+
 export const OPML_IMPORT_CONCURRENCY = 3;

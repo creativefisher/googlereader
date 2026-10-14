@@ -14,14 +14,23 @@ function stripIpv6Brackets(hostname: string): string {
   return hostname;
 }
 
+function hexIpv4MappedTailToDotted(tail: string): string | null {
+  const parts = tail.split(":");
+  if (parts.length !== 2) return null;
+  const hi = Number.parseInt(parts[0], 16);
+  const lo = Number.parseInt(parts[1], 16);
+  if (Number.isNaN(hi) || Number.isNaN(lo) || hi > 0xffff || lo > 0xffff) return null;
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+}
+
 function ipv4FromMappedIpv6(normalized: string): string | null {
   const lower = normalized.toLowerCase();
-  if (lower.startsWith("::ffff:")) {
-    const tail = lower.slice("::ffff:".length);
-    if (isIP(tail) === 4) return tail;
-  }
-  const embedded = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  return embedded?.[1] ?? null;
+  if (!lower.startsWith("::ffff:")) return null;
+  const tail = lower.slice("::ffff:".length);
+  if (isIP(tail) === 4) return tail;
+  const dotted = tail.match(/^(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) return dotted[1];
+  return hexIpv4MappedTailToDotted(tail);
 }
 
 function isPrivateIpv4(ip: string): boolean {
