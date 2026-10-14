@@ -1,3 +1,4 @@
+import { REFRESH_STALE_LOCK_MS } from "@/lib/constants";
 import { dedupeNormalizedArticles } from "@/lib/feeds/deduplication";
 import { fetchFeedContent } from "@/lib/feeds/fetching";
 import { parseFeedXml } from "@/lib/feeds/parsing";
@@ -10,6 +11,17 @@ export interface IngestionResult {
   articlesAdded: number;
   notModified: boolean;
   error?: string;
+}
+
+async function resolveFeedUrlUpdate(feedId: string, currentUrl: string, finalUrl: string) {
+  const normalizedFinal = normalizeHttpUrl(finalUrl).toString();
+  if (normalizedFinal === currentUrl) return {};
+  const conflict = await prisma.feed.findFirst({
+    where: { url: normalizedFinal, NOT: { id: feedId } },
+    select: { id: true },
+  });
+  if (conflict) return {};
+  return { url: normalizedFinal };
 }
 
 export async function ingestFeedFromXml(
@@ -37,7 +49,9 @@ export async function ingestFeedFromXml(
   let added = 0;
   for (const article of articles) {
     const existing = await prisma.article.findUnique({
-      where: { fingerprint: article.fingerprint },
+      where: {
+        feedId_fingerprint: { feedId, fingerprint: article.fingerprint },
+      },
       select: { id: true },
     });
     if (existing) continue;
@@ -59,6 +73,37 @@ export async function ingestFeedFromXml(
   return added;
 }
 
+async function acquireRefreshLock(feedId: string): Promise<boolean> {
+  const staleBefore = new Date(Date.now() - REFRESH_STALE_LOCK_MS);
+  const locked = await prisma.feed.updateMany({
+    where: {
+      id: feedId,
+      OR: [
+        { refreshInProgress: false },
+        {
+          refreshInProgress: true,
+          OR: [
+            { refreshStartedAt: { lt: staleBefore } },
+            { refreshStartedAt: null, updatedAt: { lt: staleBefore } },
+          ],
+        },
+      ],
+    },
+    data: {
+      refreshInProgress: true,
+      refreshStartedAt: new Date(),
+    },
+  });
+  return locked.count > 0;
+}
+
+function releaseRefreshLock(feedId: string) {
+  return prisma.feed.update({
+    where: { id: feedId },
+    data: { refreshInProgress: false, refreshStartedAt: null },
+  });
+}
+
 export async function refreshFeedById(feedId: string): Promise<IngestionResult> {
   const feed = await prisma.feed.findUnique({ where: { id: feedId } });
   if (!feed) {
@@ -70,11 +115,8 @@ export async function refreshFeedById(feedId: string): Promise<IngestionResult> 
   });
 
   try {
-    const locked = await prisma.feed.updateMany({
-      where: { id: feedId, refreshInProgress: false },
-      data: { refreshInProgress: true },
-    });
-    if (locked.count === 0) {
+    const acquired = await acquireRefreshLock(feedId);
+    if (!acquired) {
       await prisma.refreshLog.update({
         where: { id: log.id },
         data: {
@@ -91,15 +133,19 @@ export async function refreshFeedById(feedId: string): Promise<IngestionResult> 
       lastModified: feed.lastModified,
     });
 
+    const urlPatch = await resolveFeedUrlUpdate(feedId, feed.url, fetched.finalUrl);
+
     if (!fetched.body) {
       await prisma.feed.update({
         where: { id: feedId },
         data: {
           refreshInProgress: false,
+          refreshStartedAt: null,
           lastFetchedAt: new Date(),
           lastError: null,
           etag: fetched.etag ?? feed.etag,
           lastModified: fetched.lastModified ?? feed.lastModified,
+          ...urlPatch,
         },
       });
       await prisma.refreshLog.update({
@@ -117,11 +163,12 @@ export async function refreshFeedById(feedId: string): Promise<IngestionResult> 
       where: { id: feedId },
       data: {
         refreshInProgress: false,
+        refreshStartedAt: null,
         lastFetchedAt: new Date(),
         lastError: null,
         etag: fetched.etag ?? feed.etag,
         lastModified: fetched.lastModified ?? feed.lastModified,
-        url: normalizeHttpUrl(fetched.finalUrl).toString(),
+        ...urlPatch,
       },
     });
     await prisma.refreshLog.update({
@@ -135,10 +182,10 @@ export async function refreshFeedById(feedId: string): Promise<IngestionResult> 
     return { feedId, articlesAdded: added, notModified: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Refresh failed";
+    await releaseRefreshLock(feedId);
     await prisma.feed.update({
       where: { id: feedId },
       data: {
-        refreshInProgress: false,
         lastError: message,
         lastFetchedAt: new Date(),
       },

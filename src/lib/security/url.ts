@@ -7,6 +7,23 @@ const BLOCKED_HOSTNAMES = new Set([
   "metadata.google",
 ]);
 
+function stripIpv6Brackets(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
+function ipv4FromMappedIpv6(normalized: string): string | null {
+  const lower = normalized.toLowerCase();
+  if (lower.startsWith("::ffff:")) {
+    const tail = lower.slice("::ffff:".length);
+    if (isIP(tail) === 4) return tail;
+  }
+  const embedded = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  return embedded?.[1] ?? null;
+}
+
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return true;
@@ -22,9 +39,11 @@ function isPrivateIpv4(ip: string): boolean {
 
 function isPrivateIpv6(ip: string): boolean {
   const normalized = ip.toLowerCase();
-  if (normalized === "::1") return true;
+  if (normalized === "::" || normalized === "::1") return true;
   if (normalized.startsWith("fe80:")) return true;
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
+  const mappedV4 = ipv4FromMappedIpv6(normalized);
+  if (mappedV4) return isPrivateIpv4(mappedV4);
   return false;
 }
 
@@ -65,7 +84,8 @@ export function normalizeHttpUrl(raw: string): URL {
 
 export async function assertSafeFetchUrl(raw: string): Promise<URL> {
   const url = normalizeHttpUrl(raw);
-  const hostname = url.hostname.toLowerCase();
+  const hostnameRaw = url.hostname.toLowerCase();
+  const hostname = stripIpv6Brackets(hostnameRaw);
   if (BLOCKED_HOSTNAMES.has(hostname)) {
     throw new UrlValidationError("Hostname is not allowed");
   }

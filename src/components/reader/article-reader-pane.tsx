@@ -15,12 +15,10 @@ interface ArticleDetail extends ArticleListItem {
 
 export function ArticleReaderPane({
   articleId,
-  listItem,
   onToggleRead,
   onToggleStar,
 }: {
   articleId: string | null;
-  listItem: ArticleListItem | null;
   onToggleRead: (isRead: boolean) => void;
   onToggleStar: (isStarred: boolean) => void;
 }) {
@@ -33,16 +31,25 @@ export function ArticleReaderPane({
       setDetail(null);
       return;
     }
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    void fetch(`/api/articles/${articleId}`)
+    void fetch(`/api/articles/${articleId}`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error("Failed to load article");
-        setDetail(await res.json());
-        if (listItem && !listItem.isRead) onToggleRead(true);
+        const data = (await res.json()) as ArticleDetail;
+        setDetail(data);
+        if (!data.isRead) {
+          setDetail({ ...data, isRead: true });
+          onToggleRead(true);
+        }
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Error"))
+      .catch((e) => {
+        if (e instanceof Error && e.name === "AbortError") return;
+        setError(e instanceof Error ? e.message : "Error");
+      })
       .finally(() => setLoading(false));
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mark read once when opening
   }, [articleId]);
 

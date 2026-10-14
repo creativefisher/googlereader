@@ -9,7 +9,7 @@ A modern, three-pane RSS reader built with **Next.js (App Router)**, **TypeScrip
 - Read/unread and starred state with unread counts
 - Full-text search, sorting, infinite scroll
 - Feed ingestion pipeline with deduplication and refresh logs
-- SSRF-aware fetching, HTML sanitization, URL validation
+- SSRF-aware fetching (including per-redirect validation), HTML sanitization, URL validation
 - Light/dark themes and keyboard shortcuts (`j` / `k`, `/` for search)
 - In-process background refresh scheduler (development-oriented)
 - Offline-friendly seed data with fixture articles
@@ -51,12 +51,18 @@ For production, use a dedicated cron/worker (for example, a secured `POST /api/f
 ```bash
 cp .env.example .env
 npm install
-npm run db:push
+npm run db:migrate
 npm run db:seed
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+For an existing database, apply migrations without resetting data:
+
+```bash
+npx prisma migrate deploy
+```
 
 ### Scripts
 
@@ -68,21 +74,31 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript (`strict`) |
 | `npm run test` | Vitest unit + integration tests |
-| `npm run test:e2e` | Playwright E2E tests |
-| `npm run db:migrate` | Create/apply migrations |
+| `npm run test:e2e` | Playwright E2E tests (uses `prisma/e2e.db`, not your dev DB) |
+| `npm run db:migrate` | Create/apply migrations in development |
 | `npm run db:seed` | Seed offline sample feeds/articles |
+
+## AI code review (CodeRabbit)
+
+This repo is intended for experimenting with automated review tools. After making changes locally, you can run an agent-assisted review with the [CodeRabbit CLI](https://docs.coderabbit.ai/cli):
+
+```bash
+coderabbit review --agent
+```
+
+See [CodeRabbit CLI documentation](https://docs.coderabbit.ai/cli?utm_source=ghpr) for installation and authentication.
 
 ## Testing
 
-- **Unit tests** cover URL normalization, parsing, deduplication, sanitization, and folders.
+- **Unit tests** cover URL normalization, parsing, deduplication, sanitization, folders, and pagination cursors.
 - **Integration tests** cover ingestion, concurrent refresh guard, OPML, and search (using SQLite `prisma/test.db`).
-- **E2E tests** cover reading flow, starring, and search against a built app.
+- **E2E tests** cover reading flow, starring, and search against a built app with an isolated `prisma/e2e.db`.
 
 Fixtures live in `tests/fixtures/` so tests do not depend on live RSS hosts.
 
 ## Security notes
 
-- Feed and discovery requests pass SSRF checks (private/reserved IPs blocked).
+- Feed and discovery requests pass SSRF checks on every redirect hop (private/reserved IPs blocked).
 - Article HTML is sanitized before rendering; scripts are stripped.
 - API inputs are validated with Zod.
 

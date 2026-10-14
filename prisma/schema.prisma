@@ -52,6 +52,7 @@ model Feed {
   lastFetchedAt     DateTime?
   lastError         String?
   refreshInProgress Boolean   @default(false)
+  refreshStartedAt  DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -88,12 +89,13 @@ model Article {
   summary     String?
   contentHtml String?
   publishedAt DateTime?
-  fingerprint String    @unique
+  fingerprint String
   createdAt   DateTime  @default(now())
 
   feed   Feed           @relation(fields: [feedId], references: [id], onDelete: Cascade)
   states ArticleState[]
 
+  @@unique([feedId, fingerprint])
   @@index([feedId, publishedAt])
   @@index([feedId, guid])
 }

@@ -1,5 +1,6 @@
 import { FEED_FETCH_TIMEOUT_MS } from "@/lib/constants";
 import type { FetchFeedResult } from "@/lib/feeds/types";
+import { SafeFetchError, fetchWithSafeRedirects } from "@/lib/security/safe-fetch";
 import { assertSafeFetchUrl } from "@/lib/security/url";
 
 export class FeedFetchError extends Error {
@@ -13,7 +14,7 @@ export async function fetchFeedContent(
   feedUrl: string,
   options?: { etag?: string | null; lastModified?: string | null },
 ): Promise<FetchFeedResult> {
-  const safeUrl = await assertSafeFetchUrl(feedUrl);
+  await assertSafeFetchUrl(feedUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FEED_FETCH_TIMEOUT_MS);
 
@@ -25,8 +26,7 @@ export async function fetchFeedContent(
     if (options?.etag) headers["If-None-Match"] = options.etag;
     if (options?.lastModified) headers["If-Modified-Since"] = options.lastModified;
 
-    const response = await fetch(safeUrl.toString(), {
-      redirect: "follow",
+    const { response, finalUrl } = await fetchWithSafeRedirects(feedUrl, {
       signal: controller.signal,
       headers,
     });
@@ -36,7 +36,7 @@ export async function fetchFeedContent(
         body: "",
         etag: response.headers.get("etag"),
         lastModified: response.headers.get("last-modified"),
-        finalUrl: response.url,
+        finalUrl,
       };
     }
 
@@ -54,10 +54,11 @@ export async function fetchFeedContent(
       body,
       etag: response.headers.get("etag"),
       lastModified: response.headers.get("last-modified"),
-      finalUrl: response.url,
+      finalUrl,
     };
   } catch (error) {
     if (error instanceof FeedFetchError) throw error;
+    if (error instanceof SafeFetchError) throw new FeedFetchError(error.message);
     if (error instanceof Error && error.name === "AbortError") {
       throw new FeedFetchError("Feed request timed out");
     }

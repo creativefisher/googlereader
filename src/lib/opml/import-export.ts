@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 
+import { OPML_IMPORT_CONCURRENCY, OPML_MAX_FEED_IMPORTS } from "@/lib/constants";
 import { prisma } from "@/lib/db/prisma";
 import { createFeedAndSubscription } from "@/lib/feeds/ingestion";
 import { normalizeHttpUrl } from "@/lib/security/url";
@@ -83,32 +84,24 @@ export interface OpmlImportResult {
   errors: string[];
 }
 
-async function importOutlineTree(
+interface FeedImportJob {
+  feedUrl: string;
+  folderId: string | null;
+}
+
+async function collectFeedJobs(
   userId: string,
   outlines: OpmlOutline[],
   folderId: string | null,
-  existingUrls: Set<string>,
-  result: OpmlImportResult,
-) {
+  jobs: FeedImportJob[],
+): Promise<void> {
   for (const outline of outlines) {
     const nested = childOutlines(outline);
     const xmlUrl = outline.xmlUrl?.trim();
     if (xmlUrl && outline.type !== "folder") {
-      try {
-        const normalized = normalizeHttpUrl(xmlUrl).toString();
-        if (existingUrls.has(normalized)) {
-          result.skipped += 1;
-          continue;
-        }
-        await createFeedAndSubscription({ userId, feedUrl: normalized, folderId });
-        existingUrls.add(normalized);
-        result.imported += 1;
-      } catch (error) {
-        result.errors.push(error instanceof Error ? error.message : "Import failed");
-      }
+      jobs.push({ feedUrl: xmlUrl, folderId });
       continue;
     }
-
     if (nested.length > 0) {
       const folderName = outline.title ?? outline.text ?? "Imported folder";
       const folder = await prisma.folder.upsert({
@@ -116,7 +109,7 @@ async function importOutlineTree(
         create: { userId, name: folderName },
         update: {},
       });
-      await importOutlineTree(userId, nested, folder.id, existingUrls, result);
+      await collectFeedJobs(userId, nested, folder.id, jobs);
     }
   }
 }
@@ -133,7 +126,38 @@ export async function importSubscriptionsOpml(userId: string, opml: string): Pro
   });
   const existingUrls = new Set(existing.map((s) => s.feed.url));
 
+  const jobs: FeedImportJob[] = [];
+  await collectFeedJobs(userId, outlines, null, jobs);
+
   const result: OpmlImportResult = { imported: 0, skipped: 0, errors: [] };
-  await importOutlineTree(userId, outlines, null, existingUrls, result);
+  const capped = jobs.slice(0, OPML_MAX_FEED_IMPORTS);
+  if (jobs.length > OPML_MAX_FEED_IMPORTS) {
+    result.errors.push(`OPML import capped at ${OPML_MAX_FEED_IMPORTS} feeds`);
+  }
+
+  for (let i = 0; i < capped.length; i += OPML_IMPORT_CONCURRENCY) {
+    const batch = capped.slice(i, i + OPML_IMPORT_CONCURRENCY);
+    await Promise.all(
+      batch.map(async (job) => {
+        try {
+          const normalized = normalizeHttpUrl(job.feedUrl).toString();
+          if (existingUrls.has(normalized)) {
+            result.skipped += 1;
+            return;
+          }
+          await createFeedAndSubscription({
+            userId,
+            feedUrl: normalized,
+            folderId: job.folderId,
+          });
+          existingUrls.add(normalized);
+          result.imported += 1;
+        } catch (error) {
+          result.errors.push(error instanceof Error ? error.message : "Import failed");
+        }
+      }),
+    );
+  }
+
   return result;
 }

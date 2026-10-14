@@ -30,9 +30,19 @@ export interface ArticleListItem {
   isStarred: boolean;
 }
 
+function subscriptionScope(userId: string) {
+  return {
+    feed: {
+      subscriptions: {
+        some: { userId },
+      },
+    },
+  };
+}
+
 function buildWhere(params: ArticleListParams) {
   const userId = params.userId ?? DEFAULT_USER_ID;
-  const and: object[] = [];
+  const and: object[] = [subscriptionScope(userId)];
 
   if (params.feedId) {
     and.push({ feedId: params.feedId });
@@ -85,29 +95,71 @@ function buildWhere(params: ArticleListParams) {
     });
   }
 
-  return and.length > 0 ? { AND: and } : {};
+  return { AND: and };
+}
+
+/** Encodes `publishedAt` + `id` for stable keyset pagination. */
+export function encodeArticleCursor(publishedAt: Date | null, id: string): string {
+  const ts = publishedAt?.toISOString() ?? "";
+  return `${ts}|${id}`;
+}
+
+function decodeArticleCursor(cursor: string): { publishedAt: Date | null; id: string } | null {
+  const sep = cursor.lastIndexOf("|");
+  if (sep <= 0) return null;
+  const ts = cursor.slice(0, sep);
+  const id = cursor.slice(sep + 1);
+  if (!id) return null;
+  if (!ts) return { publishedAt: null, id };
+  const publishedAt = new Date(ts);
+  if (Number.isNaN(publishedAt.getTime())) return null;
+  return { publishedAt, id };
+}
+
+function cursorFilter(sort: ArticleSort, cursor: { publishedAt: Date | null; id: string }) {
+  const { publishedAt, id } = cursor;
+  if (sort === "newest") {
+    if (publishedAt === null) {
+      return { OR: [{ publishedAt: null, id: { lt: id } }] };
+    }
+    return {
+      OR: [
+        { publishedAt: { lt: publishedAt } },
+        { AND: [{ publishedAt }, { id: { lt: id } }] },
+        { publishedAt: null },
+      ],
+    };
+  }
+  if (publishedAt === null) {
+    return {
+      OR: [{ publishedAt: null, id: { gt: id } }, { publishedAt: { not: null } }],
+    };
+  }
+  return {
+    OR: [
+      { publishedAt: { gt: publishedAt } },
+      { AND: [{ publishedAt }, { id: { gt: id } }] },
+    ],
+  };
 }
 
 export async function listArticles(params: ArticleListParams) {
   const userId = params.userId ?? DEFAULT_USER_ID;
   const limit = params.limit ?? ARTICLES_PAGE_SIZE;
   const sort = params.sort ?? "newest";
-  const cursorDate = params.cursor ? new Date(params.cursor) : null;
+  const decodedCursor = params.cursor ? decodeArticleCursor(params.cursor) : null;
 
-  const where = buildWhere(params);
-  const dateFilter =
-    cursorDate && !Number.isNaN(cursorDate.getTime())
-      ? {
-          publishedAt:
-            sort === "newest"
-              ? { lt: cursorDate }
-              : { gt: cursorDate },
-        }
-      : {};
+  const whereParts: object[] = [buildWhere(params)];
+  if (decodedCursor) {
+    whereParts.push(cursorFilter(sort, decodedCursor));
+  }
 
   const rows = await prisma.article.findMany({
-    where: { ...where, ...dateFilter },
-    orderBy: { publishedAt: sort === "newest" ? "desc" : "asc" },
+    where: { AND: whereParts },
+    orderBy: [
+      { publishedAt: sort === "newest" ? "desc" : "asc" },
+      { id: sort === "newest" ? "desc" : "asc" },
+    ],
     take: limit + 1,
     include: {
       feed: { select: { title: true } },
@@ -134,17 +186,19 @@ export async function listArticles(params: ArticleListParams) {
     };
   });
 
+  const last = slice[slice.length - 1];
   const nextCursor =
-    hasMore && slice.length > 0
-      ? slice[slice.length - 1].publishedAt?.toISOString() ?? null
-      : null;
+    hasMore && last ? encodeArticleCursor(last.publishedAt, last.id) : null;
 
   return { items, nextCursor, hasMore };
 }
 
 export async function getArticleById(articleId: string, userId: string = DEFAULT_USER_ID) {
-  const article = await prisma.article.findUnique({
-    where: { id: articleId },
+  const article = await prisma.article.findFirst({
+    where: {
+      id: articleId,
+      feed: { subscriptions: { some: { userId } } },
+    },
     include: {
       feed: { select: { title: true, siteUrl: true, url: true } },
       states: { where: { userId }, take: 1 },
@@ -158,4 +212,14 @@ export async function getArticleById(articleId: string, userId: string = DEFAULT
     isRead: state?.isRead ?? false,
     isStarred: state?.isStarred ?? false,
   };
+}
+
+export async function articleExistsForUser(articleId: string, userId: string = DEFAULT_USER_ID) {
+  const count = await prisma.article.count({
+    where: {
+      id: articleId,
+      feed: { subscriptions: { some: { userId } } },
+    },
+  });
+  return count > 0;
 }

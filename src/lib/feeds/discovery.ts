@@ -1,4 +1,5 @@
 import { FEED_FETCH_TIMEOUT_MS } from "@/lib/constants";
+import { fetchWithSafeRedirects } from "@/lib/security/safe-fetch";
 import { assertSafeFetchUrl, normalizeHttpUrl } from "@/lib/security/url";
 
 const LINK_RE =
@@ -18,15 +19,14 @@ function isFeedType(type: string | null): boolean {
 
 export async function discoverFeedUrl(siteUrl: string): Promise<string | null> {
   const normalized = normalizeHttpUrl(siteUrl);
-  const safeUrl = await assertSafeFetchUrl(normalized.toString());
+  await assertSafeFetchUrl(normalized.toString());
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FEED_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(safeUrl.toString(), {
+    const { response, finalUrl } = await fetchWithSafeRedirects(normalized.toString(), {
       signal: controller.signal,
       headers: { Accept: "text/html,application/xhtml+xml" },
-      redirect: "follow",
     });
     if (!response.ok) return null;
     const html = await response.text();
@@ -38,7 +38,7 @@ export async function discoverFeedUrl(siteUrl: string): Promise<string | null> {
       const hrefMatch = tag.match(HREF_RE);
       if (!hrefMatch?.[1]) continue;
       try {
-        const feedUrl = new URL(hrefMatch[1], response.url).toString();
+        const feedUrl = new URL(hrefMatch[1], finalUrl).toString();
         candidates.push(feedUrl);
       } catch {
         // skip invalid href

@@ -1,4 +1,8 @@
+import path from "node:path";
+
 import { defineConfig, devices } from "@playwright/test";
+
+const e2eDatabaseUrl = `file:${path.join(process.cwd(), "prisma", "e2e.db")}`;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -16,6 +20,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 180_000,
     env: {
+      DATABASE_URL: e2eDatabaseUrl,
       DISABLE_FEED_SCHEDULER: "true",
     },
   },

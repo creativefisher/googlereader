@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { parseJsonBody } from "@/lib/api/parse-json";
 import { jsonError, jsonOk } from "@/lib/api/response";
 import { DEFAULT_USER_ID } from "@/lib/constants";
 import { deleteFolder, renameFolder } from "@/lib/folders/management";
@@ -7,8 +8,8 @@ import { deleteFolder, renameFolder } from "@/lib/folders/management";
 const patchSchema = z.object({ name: z.string().min(1) });
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
-  const parsed = patchSchema.safeParse(await request.json());
-  if (!parsed.success) return jsonError("Invalid request body");
+  const parsed = await parseJsonBody(request, patchSchema);
+  if (!parsed.success) return jsonError("Invalid request body", 400);
   try {
     const folder = await renameFolder(DEFAULT_USER_ID, params.id, parsed.data.name);
     return jsonOk(folder);

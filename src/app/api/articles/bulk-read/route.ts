@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { parseJsonBody } from "@/lib/api/parse-json";
 import { bulkMarkRead, bulkMarkReadInFeed } from "@/lib/articles/read-state";
 import { jsonError, jsonOk } from "@/lib/api/response";
 import { DEFAULT_USER_ID } from "@/lib/constants";
@@ -12,8 +13,8 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   await ensureDefaultUser();
-  const body = schema.safeParse(await request.json());
-  if (!body.success) return jsonError("Invalid request body");
+  const body = await parseJsonBody(request, schema);
+  if (!body.success) return jsonError("Invalid request body", 400);
   if (body.data.feedId) {
     const result = await bulkMarkReadInFeed(DEFAULT_USER_ID, body.data.feedId);
     return jsonOk(result);

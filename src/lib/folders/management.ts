@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/db/prisma";
 
 export class FolderError extends Error {
@@ -7,6 +9,13 @@ export class FolderError extends Error {
   }
 }
 
+function handleFolderWriteError(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    throw new FolderError("A folder with this name already exists");
+  }
+  throw error;
+}
+
 export async function createFolder(userId: string, name: string) {
   const trimmed = name.trim();
   if (!trimmed) throw new FolderError("Folder name is required");
@@ -14,13 +23,17 @@ export async function createFolder(userId: string, name: string) {
     where: { userId },
     _max: { sortOrder: true },
   });
-  return prisma.folder.create({
-    data: {
-      userId,
-      name: trimmed,
-      sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
-    },
-  });
+  try {
+    return await prisma.folder.create({
+      data: {
+        userId,
+        name: trimmed,
+        sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
+      },
+    });
+  } catch (error) {
+    handleFolderWriteError(error);
+  }
 }
 
 export async function renameFolder(userId: string, folderId: string, name: string) {
@@ -28,10 +41,14 @@ export async function renameFolder(userId: string, folderId: string, name: strin
   if (!trimmed) throw new FolderError("Folder name is required");
   const folder = await prisma.folder.findFirst({ where: { id: folderId, userId } });
   if (!folder) throw new FolderError("Folder not found");
-  return prisma.folder.update({
-    where: { id: folderId },
-    data: { name: trimmed },
-  });
+  try {
+    return await prisma.folder.update({
+      where: { id: folderId },
+      data: { name: trimmed },
+    });
+  } catch (error) {
+    handleFolderWriteError(error);
+  }
 }
 
 export async function deleteFolder(userId: string, folderId: string) {

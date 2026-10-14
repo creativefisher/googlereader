@@ -47,8 +47,16 @@ describe("OPML import/export", () => {
 
 describe("article search", () => {
   it("finds articles by title", async () => {
+    await prisma.user.upsert({
+      where: { id: DEFAULT_USER_ID },
+      create: { id: DEFAULT_USER_ID, settings: { create: {} } },
+      update: {},
+    });
     const feed = await prisma.feed.create({
-      data: { url: "https://example.test/search.xml", title: "Search Feed" },
+      data: { url: "https://example.com/search.xml", title: "Search Feed" },
+    });
+    await prisma.subscription.create({
+      data: { userId: DEFAULT_USER_ID, feedId: feed.id },
     });
     await ingestFeedFromXml(feed.id, `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><item><guid>1</guid><title>Unique Quantum Headline</title></item></channel></rss>`);
     const { listArticles } = await import("@/lib/articles/queries");

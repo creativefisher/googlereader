@@ -164,11 +164,12 @@ export function ReaderApp() {
   };
 
   const patchArticle = async (articleId: string, patch: { isRead?: boolean; isStarred?: boolean }) => {
-    await fetch(`/api/articles/${articleId}/state`, {
+    const res = await fetch(`/api/articles/${articleId}/state`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
+    if (!res.ok) return;
     setArticles((prev) =>
       prev.map((a) =>
         a.id === articleId
@@ -190,8 +191,6 @@ export function ReaderApp() {
       void loadArticles({ append: true, cursor });
     }
   };
-
-  const selectedArticle = articles.find((a) => a.id === selectedArticleId) ?? null;
 
   return (
     <div className="flex h-screen bg-background text-foreground">
@@ -373,7 +372,6 @@ export function ReaderApp() {
       <main className="min-w-0 flex-1">
         <ArticleReaderPane
           articleId={selectedArticleId}
-          listItem={selectedArticle}
           onToggleRead={(isRead) => selectedArticleId && void patchArticle(selectedArticleId, { isRead })}
           onToggleStar={(isStarred) => selectedArticleId && void patchArticle(selectedArticleId, { isStarred })}
         />

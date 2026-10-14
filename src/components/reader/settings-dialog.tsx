@@ -109,7 +109,9 @@ export function SettingsDialog({
                     accept=".opml,.xml,text/xml"
                     className="hidden"
                     onChange={(e) => {
-                      const file = e.target.files?.[0];
+                      const input = e.target;
+                      const file = input.files?.[0];
+                      input.value = "";
                       if (file) void importOpml(file);
                     }}
                   />
