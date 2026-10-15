@@ -73,6 +73,47 @@ async function fetchPinnedAddress(
   }
 }
 
+/**
+ * True when running on Cloudflare Workers (workerd). There, undici's socket-level
+ * Agent/dispatcher (used for DNS pinning) cannot open connections, so every request
+ * fails with "fetch failed". The platform fetch is used instead: the Worker sets the
+ * `global_fetch_strictly_public` compatibility flag, so Cloudflare itself refuses to
+ * connect to private/internal addresses, which gives the same SSRF protection as pinning.
+ */
+export function isWorkersRuntime(): boolean {
+  return typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
+}
+
+async function fetchViaPlatform(url: URL, init: UndiciRequestInit): Promise<UndiciFetchResponse> {
+  try {
+    return (await globalThis.fetch(url.toString(), {
+      ...(init as RequestInit),
+      redirect: "manual",
+    })) as unknown as UndiciFetchResponse;
+  } catch (error) {
+    throw new SafeFetchError(describeFetchError(error));
+  }
+}
+
+/** Turns undici's generic "fetch failed" into something actionable using the underlying cause. */
+export function describeFetchError(error: unknown): string {
+  if (!(error instanceof Error)) return "Could not connect to the feed server";
+  if (error.name === "AbortError") return "Feed request timed out";
+  const cause = (error as Error & { cause?: unknown }).cause;
+  const causeMessage =
+    cause instanceof Error
+      ? [(cause as Error & { code?: string }).code, cause.message].filter(Boolean).join(": ")
+      : typeof cause === "string"
+        ? cause
+        : "";
+  if (error.message === "fetch failed") {
+    return causeMessage
+      ? `Could not connect to the feed server (${causeMessage})`
+      : "Could not connect to the feed server";
+  }
+  return causeMessage ? `${error.message} (${causeMessage})` : error.message;
+}
+
 async function fetchWithPinnedAddresses(
   endpoint: { url: URL; hostname: string; pinnedAddresses: string[] },
   init: UndiciRequestInit,
@@ -85,8 +126,8 @@ async function fetchWithPinnedAddresses(
       lastError = error;
     }
   }
-  const message = lastError instanceof Error ? lastError.message : "Fetch failed";
-  throw new SafeFetchError(message);
+  if (lastError instanceof Error && lastError.name === "AbortError") throw lastError;
+  throw new SafeFetchError(describeFetchError(lastError));
 }
 
 /**
@@ -102,7 +143,9 @@ export async function fetchWithSafeRedirects(
   let redirectCount = 0;
 
   while (true) {
-    const response = await fetchWithPinnedAddresses(endpoint, requestInit);
+    const response = isWorkersRuntime()
+      ? await fetchViaPlatform(endpoint.url, requestInit)
+      : await fetchWithPinnedAddresses(endpoint, requestInit);
 
     if (isRedirectStatus(response.status)) {
       const location = response.headers.get("location");

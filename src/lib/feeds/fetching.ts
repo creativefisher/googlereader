@@ -21,7 +21,7 @@ export async function fetchFeedContent(
   try {
     const headers: Record<string, string> = {
       Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-      "User-Agent": "GoogleReaderClone/1.0 (+https://github.com/local/rss-reader)",
+      "User-Agent": "Mozilla/5.0 (compatible; GoogleReaderClone/1.0; +https://github.com/creativefisher/googlereader)",
     };
     if (options?.etag) headers["If-None-Match"] = options.etag;
     if (options?.lastModified) headers["If-Modified-Since"] = options.lastModified;
@@ -41,7 +41,14 @@ export async function fetchFeedContent(
     }
 
     if (!response.ok) {
-      throw new FeedFetchError(`Feed server returned ${response.status}`);
+      const reason = response.statusText ? ` ${response.statusText}` : "";
+      const hint =
+        response.status === 401 || response.status === 403 || response.status === 429
+          ? " (the site may be blocking automated requests)"
+          : response.status === 404
+            ? " (feed not found at this URL)"
+            : "";
+      throw new FeedFetchError(`Feed server returned HTTP ${response.status}${reason}${hint}`);
     }
 
     const contentType = response.headers.get("content-type") ?? "";
