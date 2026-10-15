@@ -7,11 +7,18 @@ const BLOCKED_HOSTNAMES = new Set([
   "metadata.google",
 ]);
 
+type IpClassification = "public" | "private" | "unknown";
+
 function stripIpv6Brackets(hostname: string): string {
   if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return hostname.slice(1, -1);
   }
   return hostname;
+}
+
+function stripZoneId(ip: string): string {
+  const zone = ip.indexOf("%");
+  return zone === -1 ? ip : ip.slice(0, zone);
 }
 
 function hexIpv4MappedTailToDotted(tail: string): string | null {
@@ -23,7 +30,7 @@ function hexIpv4MappedTailToDotted(tail: string): string | null {
   return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
 }
 
-function ipv4FromMappedIpv6(normalized: string): string | null {
+function ipv4FromMappedIpv6Prefix(normalized: string): string | null {
   const lower = normalized.toLowerCase();
   if (!lower.startsWith("::ffff:")) return null;
   const tail = lower.slice("::ffff:".length);
@@ -31,6 +38,38 @@ function ipv4FromMappedIpv6(normalized: string): string | null {
   const dotted = tail.match(/^(\d+\.\d+\.\d+\.\d+)$/);
   if (dotted) return dotted[1];
   return hexIpv4MappedTailToDotted(tail);
+}
+
+function ipv4FromEmbeddedMappedIpv6(normalized: string): string | null {
+  const lower = normalized.toLowerCase();
+  const dottedMatch = lower.match(/(?:^|:)ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (dottedMatch) return dottedMatch[1];
+  const hexMatch = lower.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexMatch) return hexIpv4MappedTailToDotted(`${hexMatch[1]}:${hexMatch[2]}`);
+  return null;
+}
+
+function ipv4FromMappedIpv6(normalized: string): string | null {
+  return ipv4FromMappedIpv6Prefix(normalized) ?? ipv4FromEmbeddedMappedIpv6(normalized);
+}
+
+function firstIpv6Hextet(normalized: string): string | null {
+  const lower = normalized.toLowerCase();
+  if (!lower.includes(":")) return null;
+  if (lower.startsWith("::")) {
+    const rest = lower.slice(2);
+    if (!rest) return null;
+    return rest.split(":")[0] || null;
+  }
+  return lower.split(":")[0] || null;
+}
+
+function isUniqueLocalIpv6(normalized: string): boolean {
+  const first = firstIpv6Hextet(normalized);
+  if (!first) return false;
+  const value = Number.parseInt(first, 16);
+  if (Number.isNaN(value)) return false;
+  return (value & 0xfe00) === 0xfc00;
 }
 
 function isPrivateIpv4(ip: string): boolean {
@@ -50,17 +89,41 @@ function isPrivateIpv6(ip: string): boolean {
   const normalized = ip.toLowerCase();
   if (normalized === "::" || normalized === "::1") return true;
   if (normalized.startsWith("fe80:")) return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
+  if (isUniqueLocalIpv6(normalized)) return true;
   const mappedV4 = ipv4FromMappedIpv6(normalized);
   if (mappedV4) return isPrivateIpv4(mappedV4);
   return false;
 }
 
-function isBlockedIp(ip: string): boolean {
+function classifyResolvedIp(raw: string): IpClassification {
+  const ip = stripZoneId(raw.trim());
   const version = isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return true;
+  if (version === 4) return isPrivateIpv4(ip) ? "private" : "public";
+  if (version === 6) return isPrivateIpv6(ip) ? "private" : "public";
+  return "unknown";
+}
+
+function isBlockedIp(ip: string): boolean {
+  return classifyResolvedIp(ip) !== "public";
+}
+
+function validateResolvedAddresses(addresses: { address: string; family: number }[]): void {
+  const ipv4Addresses = addresses.filter((entry) => entry.family === 4);
+  const toCheck = ipv4Addresses.length > 0 ? ipv4Addresses : addresses;
+
+  let hasPublic = false;
+  let hasPrivate = false;
+  for (const entry of toCheck) {
+    const classification = classifyResolvedIp(entry.address);
+    if (classification === "public") hasPublic = true;
+    if (classification === "private") hasPrivate = true;
+  }
+
+  if (hasPublic) return;
+  if (hasPrivate) {
+    throw new UrlValidationError("Hostname resolves to a private or local address");
+  }
+  throw new UrlValidationError("Could not verify hostname address");
 }
 
 export class UrlValidationError extends Error {
@@ -122,10 +185,6 @@ export async function assertSafeFetchUrl(raw: string): Promise<URL> {
   } catch {
     throw new UrlValidationError("Could not resolve hostname");
   }
-  for (const addr of addresses) {
-    if (isBlockedIp(addr.address)) {
-      throw new UrlValidationError("Hostname resolves to a private or local address");
-    }
-  }
+  validateResolvedAddresses(addresses);
   return url;
 }
