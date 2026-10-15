@@ -1,11 +1,10 @@
 import {
   Agent,
   fetch as undiciFetch,
-  Headers as UndiciHeaders,
   type Dispatcher,
   type RequestInit as UndiciRequestInit,
 } from "undici";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 
 import { resolveSafeFetchEndpoint } from "@/lib/security/url";
 
@@ -31,21 +30,22 @@ export interface SafeFetchResult {
   finalUrl: string;
 }
 
-function pinnedUrlForAddress(url: URL, pinnedAddress: string): URL {
-  const requestUrl = new URL(url.toString());
-  const family = isIP(pinnedAddress);
-  requestUrl.hostname = family === 6 ? `[${pinnedAddress}]` : pinnedAddress;
-  return requestUrl;
+function createPinnedLookup(pinnedAddress: string): LookupFunction {
+  const family = isIP(pinnedAddress) === 6 ? 6 : 4;
+  return (_hostname, options, callback) => {
+    if (options?.all) {
+      callback(null, [{ address: pinnedAddress, family }]);
+      return;
+    }
+    callback(null, pinnedAddress, family);
+  };
 }
 
 function createPinnedDispatcher(pinnedAddress: string, tlsServername: string, useTls: boolean): Dispatcher {
-  const family = isIP(pinnedAddress) === 6 ? 6 : 4;
   return new Agent({
     connect: {
       ...(useTls ? { servername: tlsServername } : {}),
-      lookup(_hostname, _options, callback) {
-        callback(null, pinnedAddress, family);
-      },
+      lookup: createPinnedLookup(pinnedAddress),
     },
   });
 }
@@ -56,21 +56,14 @@ async function fetchPinnedAddress(
   pinnedAddress: string,
   init: UndiciRequestInit,
 ): Promise<UndiciFetchResponse> {
-  const requestUrl = pinnedUrlForAddress(url, pinnedAddress);
-  const headers = new UndiciHeaders(init.headers);
-  headers.set("Host", hostname);
-
   const dispatcher = createPinnedDispatcher(pinnedAddress, hostname, url.protocol === "https:");
-  try {
-    return await undiciFetch(requestUrl, {
-      ...init,
-      headers,
-      dispatcher,
-      redirect: "manual",
-    });
-  } finally {
-    await dispatcher.close();
-  }
+  const response = await undiciFetch(url, {
+    ...init,
+    dispatcher,
+    redirect: "manual",
+  });
+  void dispatcher.close();
+  return response;
 }
 
 /**
