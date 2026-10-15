@@ -35,7 +35,7 @@ describe("safe-fetch redirect handling", () => {
     expect(response.status).toBe(304);
   });
 
-  it("requests pinned public addresses with the original Host header", async () => {
+  it("requests the original hostname while pinning DNS to public addresses", async () => {
     mockedLookup.mockImplementationOnce((async () => [
       { address: "93.184.216.34", family: 4 },
     ]) as unknown as typeof lookup);
@@ -47,10 +47,9 @@ describe("safe-fetch redirect handling", () => {
     expect(mockedUndiciFetch).toHaveBeenCalledTimes(1);
     const call = mockedUndiciFetch.mock.calls[0] as unknown as [
       URL | string,
-      { headers: HeadersInit; dispatcher?: unknown },
+      { dispatcher?: unknown },
     ];
-    expect(String(call[0])).toContain("93.184.216.34");
-    expect(new Headers(call[1].headers).get("Host")).toBe("example.com");
+    expect(String(call[0])).toBe("https://example.com/feed.xml");
     expect(call[1].dispatcher).toBeDefined();
   });
 });
