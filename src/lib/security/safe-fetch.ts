@@ -1,4 +1,10 @@
-import { Agent, type Dispatcher } from "undici";
+import {
+  Agent,
+  fetch as undiciFetch,
+  Headers as UndiciHeaders,
+  type Dispatcher,
+  type RequestInit as UndiciRequestInit,
+} from "undici";
 import { isIP } from "node:net";
 
 import { resolveSafeFetchEndpoint } from "@/lib/security/url";
@@ -18,8 +24,10 @@ export class SafeFetchError extends Error {
   }
 }
 
+type UndiciFetchResponse = Awaited<ReturnType<typeof undiciFetch>>;
+
 export interface SafeFetchResult {
-  response: Response;
+  response: UndiciFetchResponse;
   finalUrl: string;
 }
 
@@ -46,20 +54,20 @@ async function fetchPinnedAddress(
   url: URL,
   hostname: string,
   pinnedAddress: string,
-  init: RequestInit,
-): Promise<Response> {
+  init: UndiciRequestInit,
+): Promise<UndiciFetchResponse> {
   const requestUrl = pinnedUrlForAddress(url, pinnedAddress);
-  const headers = new Headers(init.headers);
+  const headers = new UndiciHeaders(init.headers);
   headers.set("Host", hostname);
 
   const dispatcher = createPinnedDispatcher(pinnedAddress, hostname, url.protocol === "https:");
   try {
-    return await fetch(requestUrl, {
+    return await undiciFetch(requestUrl, {
       ...init,
       headers,
       dispatcher,
       redirect: "manual",
-    } as RequestInit & { dispatcher: Dispatcher });
+    });
   } finally {
     await dispatcher.close();
   }
@@ -67,8 +75,8 @@ async function fetchPinnedAddress(
 
 async function fetchWithPinnedAddresses(
   endpoint: { url: URL; hostname: string; pinnedAddresses: string[] },
-  init: RequestInit,
-): Promise<Response> {
+  init: UndiciRequestInit,
+): Promise<UndiciFetchResponse> {
   let lastError: unknown;
   for (const pinnedAddress of endpoint.pinnedAddresses) {
     try {
@@ -86,15 +94,15 @@ async function fetchWithPinnedAddresses(
  */
 export async function fetchWithSafeRedirects(
   rawUrl: string,
-  init: RequestInit & { maxRedirects?: number } = {},
+  init: UndiciRequestInit & { maxRedirects?: number } = {},
 ): Promise<SafeFetchResult> {
-  const maxRedirects = init.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+  const { maxRedirects = DEFAULT_MAX_REDIRECTS, ...requestInit } = init;
   let endpoint = await resolveSafeFetchEndpoint(rawUrl, { rejectMixed: false });
   let currentUrl = endpoint.url.toString();
   let redirectCount = 0;
 
   while (true) {
-    const response = await fetchWithPinnedAddresses(endpoint, init);
+    const response = await fetchWithPinnedAddresses(endpoint, requestInit);
 
     if (isRedirectStatus(response.status)) {
       const location = response.headers.get("location");
