@@ -5,3 +5,5 @@ export async function POST() {
   const result = await refreshAllFeeds();
   return jsonOk(result);
 }
+
+export const dynamic = "force-dynamic";

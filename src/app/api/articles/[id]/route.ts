@@ -23,3 +23,5 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     sanitizedHtml: sanitizeArticleHtml(article.contentHtml ?? article.summary ?? ""),
   });
 }
+
+export const dynamic = "force-dynamic";

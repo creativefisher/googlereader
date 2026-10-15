@@ -10,3 +10,5 @@ export async function POST(request: Request) {
   const result = await importSubscriptionsOpml(DEFAULT_USER_ID, opml);
   return jsonOk(result);
 }
+
+export const dynamic = "force-dynamic";

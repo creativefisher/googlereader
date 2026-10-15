@@ -38,3 +38,5 @@ export async function POST(request: Request) {
     return jsonError(error instanceof Error ? error.message : "Failed to add feed", 400);
   }
 }
+
+export const dynamic = "force-dynamic";

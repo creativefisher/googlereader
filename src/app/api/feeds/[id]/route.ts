@@ -16,3 +16,5 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
   }
   return jsonOk({ ok: true });
 }
+
+export const dynamic = "force-dynamic";

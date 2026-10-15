@@ -18,3 +18,5 @@ export async function POST(request: Request) {
     return jsonError(error instanceof Error ? error.message : "Failed to create folder");
   }
 }
+
+export const dynamic = "force-dynamic";

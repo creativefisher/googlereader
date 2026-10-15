@@ -25,3 +25,5 @@ export async function POST(request: Request) {
   }
   return jsonError("articleIds or feedId required");
 }
+
+export const dynamic = "force-dynamic";
