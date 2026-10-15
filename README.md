@@ -105,3 +105,15 @@ Fixtures live in `tests/fixtures/` so tests do not depend on live RSS hosts.
 ## License
 
 MIT
+
+## Deploying to Cloudflare
+
+Production runs as a Cloudflare Worker via [OpenNext](https://opennext.js.org/cloudflare), with **Cloudflare D1** (SQLite) as the database through Prisma's D1 driver adapter.
+
+- `src/lib/db/prisma.ts` uses the D1 binding (`DB`) when running on Workers and the regular SQLite client everywhere else (dev, tests).
+- `migrations/` holds copies of the Prisma migrations in the format `wrangler d1 migrations` expects. After `npm run db:migrate` creates a new Prisma migration, copy it to `migrations/NNNN_<name>.sql`; CI fails if they drift (`scripts/check-d1-migrations.sh`).
+- The in-process refresh scheduler can't run on Workers, so `worker.ts` adds a Cron Trigger (every 30 minutes) that calls `POST /api/feeds/refresh-all`.
+- D1 doesn't support transactions; Prisma runs them as individual queries. The two batch operations (bulk mark-read, folder delete) are safe to apply partially or retry.
+- `npm run preview` runs the Worker locally; `npm run deploy` deploys (needs `CLOUDFLARE_API_TOKEN`).
+
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit tests and the OpenNext build on every PR and push; on `main` it applies D1 migrations, deploys, and smoke-tests the Worker. Required repo secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.

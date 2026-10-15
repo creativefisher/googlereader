@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "googlereader",
+  "main": "worker.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "account_id": "ab926f8277b75892c2adb52733be48b5",
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "googlereader-db",
+      "database_id": "0abb2299-0c8f-4ece-bae1-96d652ce174d",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    { "binding": "NEXT_INC_CACHE_KV", "id": "8117b9fe9256406197adbe045b020e00" }
+  ],
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "googlereader" }],
+  "vars": {
+    "DISABLE_FEED_SCHEDULER": "true",
+    "DATABASE_URL": "file:./unused-on-workers.db"
+  },
+  // Replaces the in-process setInterval scheduler (not possible on Workers).
+  "triggers": { "crons": ["*/30 * * * *"] }
+}

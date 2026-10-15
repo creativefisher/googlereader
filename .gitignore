@@ -47,3 +47,8 @@ skills-lock.json
 /test-results/
 /playwright-report/
 /src/generated/
+
+# cloudflare / opennext
+/.open-next/
+/.wrangler/
+.dev.vars*
