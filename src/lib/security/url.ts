@@ -9,6 +9,12 @@ const BLOCKED_HOSTNAMES = new Set([
 
 type IpClassification = "public" | "private" | "unknown";
 
+export type SafeFetchEndpoint = {
+  url: URL;
+  hostname: string;
+  pinnedAddresses: string[];
+};
+
 function stripIpv6Brackets(hostname: string): string {
   if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return hostname.slice(1, -1);
@@ -107,23 +113,50 @@ function isBlockedIp(ip: string): boolean {
   return classifyResolvedIp(ip) !== "public";
 }
 
-function validateResolvedAddresses(addresses: { address: string; family: number }[]): void {
-  const ipv4Addresses = addresses.filter((entry) => entry.family === 4);
-  const toCheck = ipv4Addresses.length > 0 ? ipv4Addresses : addresses;
-
-  let hasPublic = false;
+export function pickPublicAddresses(
+  addresses: { address: string; family: number }[],
+  options?: { rejectMixed?: boolean },
+): string[] {
+  const publicAddresses: string[] = [];
   let hasPrivate = false;
-  for (const entry of toCheck) {
+
+  for (const entry of addresses) {
     const classification = classifyResolvedIp(entry.address);
-    if (classification === "public") hasPublic = true;
-    if (classification === "private") hasPrivate = true;
+    if (classification === "public") {
+      publicAddresses.push(stripZoneId(entry.address.trim()));
+    } else if (classification === "private") {
+      hasPrivate = true;
+    }
   }
 
-  if (hasPublic) return;
-  if (hasPrivate) {
-    throw new UrlValidationError("Hostname resolves to a private or local address");
+  if (options?.rejectMixed && hasPrivate && publicAddresses.length > 0) {
+    throw new UrlValidationError("Hostname has mixed public and private DNS responses");
   }
-  throw new UrlValidationError("Could not verify hostname address");
+
+  if (publicAddresses.length === 0) {
+    if (hasPrivate) {
+      throw new UrlValidationError("Hostname resolves to a private or local address");
+    }
+    throw new UrlValidationError("Could not verify hostname address");
+  }
+
+  return [...new Set(publicAddresses)];
+}
+
+function validateHostnameAllowed(hostname: string): void {
+  if (BLOCKED_HOSTNAMES.has(hostname)) {
+    throw new UrlValidationError("Hostname is not allowed");
+  }
+  if (hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+    throw new UrlValidationError("Hostname is not allowed");
+  }
+
+  const allowlist = process.env.FEED_ALLOWLIST?.split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowlist && allowlist.length > 0 && !allowlist.includes(hostname)) {
+    throw new UrlValidationError("Hostname is not in the allowlist");
+  }
 }
 
 export class UrlValidationError extends Error {
@@ -154,29 +187,19 @@ export function normalizeHttpUrl(raw: string): URL {
   return url;
 }
 
-export async function assertSafeFetchUrl(raw: string): Promise<URL> {
+export async function resolveSafeFetchEndpoint(
+  raw: string,
+  options?: { rejectMixed?: boolean },
+): Promise<SafeFetchEndpoint> {
   const url = normalizeHttpUrl(raw);
-  const hostnameRaw = url.hostname.toLowerCase();
-  const hostname = stripIpv6Brackets(hostnameRaw);
-  if (BLOCKED_HOSTNAMES.has(hostname)) {
-    throw new UrlValidationError("Hostname is not allowed");
-  }
-  if (hostname.endsWith(".local") || hostname.endsWith(".internal")) {
-    throw new UrlValidationError("Hostname is not allowed");
-  }
-
-  const allowlist = process.env.FEED_ALLOWLIST?.split(",")
-    .map((h) => h.trim().toLowerCase())
-    .filter(Boolean);
-  if (allowlist && allowlist.length > 0 && !allowlist.includes(hostname)) {
-    throw new UrlValidationError("Hostname is not in the allowlist");
-  }
+  const hostname = stripIpv6Brackets(url.hostname.toLowerCase());
+  validateHostnameAllowed(hostname);
 
   if (isIP(hostname)) {
     if (isBlockedIp(hostname)) {
       throw new UrlValidationError("Private or local IP addresses are not allowed");
     }
-    return url;
+    return { url, hostname, pinnedAddresses: [hostname] };
   }
 
   let addresses: { address: string; family: number }[];
@@ -185,6 +208,12 @@ export async function assertSafeFetchUrl(raw: string): Promise<URL> {
   } catch {
     throw new UrlValidationError("Could not resolve hostname");
   }
-  validateResolvedAddresses(addresses);
+
+  const pinnedAddresses = pickPublicAddresses(addresses, options);
+  return { url, hostname, pinnedAddresses };
+}
+
+export async function assertSafeFetchUrl(raw: string): Promise<URL> {
+  const { url } = await resolveSafeFetchEndpoint(raw, { rejectMixed: false });
   return url;
 }

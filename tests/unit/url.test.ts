@@ -1,7 +1,13 @@
 import { lookup } from "node:dns/promises";
 import { describe, expect, it, vi } from "vitest";
 
-import { assertSafeFetchUrl, normalizeHttpUrl, UrlValidationError } from "@/lib/security/url";
+import {
+  assertSafeFetchUrl,
+  normalizeHttpUrl,
+  pickPublicAddresses,
+  resolveSafeFetchEndpoint,
+  UrlValidationError,
+} from "@/lib/security/url";
 
 vi.mock("node:dns/promises", () => ({
   lookup: vi.fn(),
@@ -36,8 +42,30 @@ describe("assertSafeFetchUrl IPv4-mapped IPv6", () => {
   });
 });
 
+describe("pickPublicAddresses", () => {
+  it("inspects both IPv4 and IPv6 records", () => {
+    const pinned = pickPublicAddresses([
+      { address: "2606:4700:10::6814:179a", family: 6 },
+      { address: "::ffff:127.0.0.1", family: 6 },
+    ]);
+    expect(pinned).toEqual(["2606:4700:10::6814:179a"]);
+  });
+
+  it("rejects mixed responses when rejectMixed is enabled", () => {
+    expect(() =>
+      pickPublicAddresses(
+        [
+          { address: "199.232.198.114", family: 4 },
+          { address: "::ffff:127.0.0.1", family: 6 },
+        ],
+        { rejectMixed: true },
+      ),
+    ).toThrow(/mixed public and private/i);
+  });
+});
+
 describe("assertSafeFetchUrl DNS resolution", () => {
-  it("allows hostnames when at least one public IPv4 address exists", async () => {
+  it("allows mixed responses when at least one public address exists for pinned fetch", async () => {
     mockedLookup.mockImplementationOnce((async () => [
       { address: "199.232.198.114", family: 4 },
       { address: "199.232.194.114", family: 4 },
@@ -49,13 +77,14 @@ describe("assertSafeFetchUrl DNS resolution", () => {
     });
   });
 
-  it("ignores spurious AAAA records when public A records exist", async () => {
+  it("returns pinned public addresses for safe fetch", async () => {
     mockedLookup.mockImplementationOnce((async () => [
       { address: "151.101.22.114", family: 4 },
       { address: "::ffff:7f00:1", family: 6 },
     ]) as unknown as typeof lookup);
 
-    await expect(assertSafeFetchUrl("https://www.techradar.com/rss")).resolves.toBeTruthy();
+    const endpoint = await resolveSafeFetchEndpoint("https://www.techradar.com/rss");
+    expect(endpoint.pinnedAddresses).toEqual(["151.101.22.114"]);
   });
 
   it("blocks when every resolved address is private", async () => {
