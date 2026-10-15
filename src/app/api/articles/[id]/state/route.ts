@@ -41,3 +41,5 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
   return jsonOk({ ok: true });
 }
+
+export const dynamic = "force-dynamic";

@@ -20,3 +20,5 @@ export async function PUT(request: Request) {
   await updateRefreshInterval(parsed.data.refreshIntervalMinutes);
   return jsonOk({ ok: true });
 }
+
+export const dynamic = "force-dynamic";

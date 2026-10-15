@@ -12,3 +12,5 @@ export async function POST(request: Request) {
   if (!feedUrl) return jsonError("No feed discovered at this URL", 404);
   return jsonOk({ feedUrl });
 }
+
+export const dynamic = "force-dynamic";

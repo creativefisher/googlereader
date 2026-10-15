@@ -26,3 +26,5 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
     return jsonError(error instanceof Error ? error.message : "Failed to delete folder");
   }
 }
+
+export const dynamic = "force-dynamic";
